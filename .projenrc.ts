@@ -4,7 +4,7 @@ const { UpgradeDependenciesSchedule } = require('projen/lib/javascript');
 const AUTOMATION_TOKEN = 'PROJEN_GITHUB_TOKEN';
 
 const project = new awscdk.AwsCdkTypeScriptApp({
-  cdkVersion: '2.86.0',
+  cdkVersion: '2.181.1',
   license: 'MIT-0',
   author: 'Court Schuett',
   copyrightOwner: 'Court Schuett',

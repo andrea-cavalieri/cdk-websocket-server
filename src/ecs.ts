@@ -1,19 +1,24 @@
 import { Duration } from 'aws-cdk-lib';
+import { AutoScalingGroup } from 'aws-cdk-lib/aws-autoscaling';
 import {
-  SubnetType,
   Vpc,
   SecurityGroup,
   Port,
   Connections,
+  InstanceType,
+  SubnetType,
+  LaunchTemplate,
+  UserData,
 } from 'aws-cdk-lib/aws-ec2';
 import {
   Cluster,
   ContainerImage,
-  CpuArchitecture,
-  FargateService,
-  FargateTaskDefinition,
   LogDrivers,
-  OperatingSystemFamily,
+  AsgCapacityProvider,
+  EcsOptimizedImage,
+  Ec2Service,
+  Ec2TaskDefinition,
+  NetworkMode,
 } from 'aws-cdk-lib/aws-ecs';
 import {
   ApplicationLoadBalancer,
@@ -23,7 +28,7 @@ import {
   ListenerAction,
   ListenerCondition,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
-import { ServicePrincipal, Role } from 'aws-cdk-lib/aws-iam';
+import { ServicePrincipal, Role, ManagedPolicy } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 interface ECSResourcesProps {
@@ -44,47 +49,74 @@ export class ECSResources extends Construct {
       clusterName: 'websocket-service',
     });
 
-    // const autoScalingGroup = new AutoScalingGroup(this, 'AutoScalingGroup', {
-    //   vpc: props.vpc,
-    //   instanceType: new InstanceType('m6i.large'),
-    //   machineImage: EcsOptimizedImage.amazonLinux2(),
+
+    //Step 2: Create an IAM Role for ECS Instances
+    const ecsInstanceRole = new Role(this, 'EcsInstanceRole', {
+      assumedBy: new ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonEC2ContainerServiceforEC2Role'),
+      ],
+    });
+
+    // //Step 3: Create an IAM Instance Profile for ECS
+    // new CfnInstanceProfile(this, 'EcsInstanceProfile', {
+    //   roles: [ecsInstanceRole.roleName],
     // });
 
-    // autoScalingGroup.role.addManagedPolicy(
-    //   ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
-    // );
+    //Step 4: Define User Data Script for ECS Agent
+    const userData = UserData.forLinux();
+    userData.addCommands(
+      '#!/bin/bash',
+      `echo ECS_CLUSTER=${this.cluster.clusterName} >> /tmp/ecs.config`,
+    );
 
-    // autoScalingGroup.scaleOnCpuUtilization('CpuScaling', {
-    //   targetUtilizationPercent: 70,
-    // });
+    //Step 4: Create a Launch Template (with IAM Role)
+    const launchTemplate = new LaunchTemplate(this, 'EcsLaunchTemplate', {
+      instanceType: new InstanceType('t3.micro'),
+      machineImage: EcsOptimizedImage.amazonLinux2(),
+      role: ecsInstanceRole, // Assign IAM role
+      userData,
+    });
 
-    // const capacityProvider = new AsgCapacityProvider(this, 'capacityProvider', {
-    //   autoScalingGroup: autoScalingGroup,
-    // });
+    const autoScalingGroup = new AutoScalingGroup(this, 'AutoScalingGroup', {
+      vpc: props.vpc,
+      vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+      launchTemplate: launchTemplate,
+      minCapacity: 1,
+      maxCapacity: 1,
+    });
 
-    // this.cluster.addAsgCapacityProvider(capacityProvider);
+    autoScalingGroup.role.addManagedPolicy(
+      ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+    );
+
+    autoScalingGroup.scaleOnCpuUtilization('CpuScaling', {
+      targetUtilizationPercent: 70,
+    });
+
+    const capacityProvider = new AsgCapacityProvider(this, 'capacityProvider', {
+      autoScalingGroup: autoScalingGroup,
+    });
+
+    this.cluster.addAsgCapacityProvider(capacityProvider);
 
     const websocketServiceRole = new Role(this, 'WebSocketServiceRole', {
       assumedBy: new ServicePrincipal('ecs-tasks.amazonaws.com'),
     });
 
-    const webSocketTask = new FargateTaskDefinition(
+    const webSocketTask = new Ec2TaskDefinition(
       this,
       'WebSocketTaskDefinition',
       {
-        memoryLimitMiB: 2048,
-        cpu: 1024,
-        runtimePlatform: {
-          operatingSystemFamily: OperatingSystemFamily.LINUX,
-          cpuArchitecture: CpuArchitecture.ARM64,
-        },
         taskRole: websocketServiceRole,
+        networkMode: NetworkMode.AWS_VPC, // Change to AWS_VPC mode
       },
     );
 
     webSocketTask.addContainer('WebSocketContainer', {
       image: ContainerImage.fromAsset('src/resources/containerImage'),
       containerName: 'websocket-service',
+      memoryLimitMiB: 512,
       portMappings: [{ containerPort: 8080, hostPort: 8080 }],
       logging: LogDrivers.awsLogs({
         streamPrefix: 'websocket-service',
@@ -103,14 +135,26 @@ export class ECSResources extends Construct {
       { vpc: props.vpc, allowAllOutbound: true },
     );
 
-    const websocketService = new FargateService(this, 'WebSocketService', {
+    // const websocketService = new FargateService(this, 'WebSocketService', {
+    //   cluster: this.cluster,
+    //   taskDefinition: webSocketTask,
+    //   assignPublicIp: true,
+    //   desiredCount: 1,
+    //   vpcSubnets: { subnetType: SubnetType.PUBLIC },
+    //   securityGroups: [webSocketServiceSecurityGroup],
+    //   enableExecuteCommand: true,
+    // });
+
+    // Create Service
+    const websocketService = new Ec2Service(this, 'WebSocketService', {
       cluster: this.cluster,
       taskDefinition: webSocketTask,
-      assignPublicIp: true,
       desiredCount: 1,
-      vpcSubnets: { subnetType: SubnetType.PUBLIC },
+      vpcSubnets: {
+        subnetType: SubnetType.PRIVATE_WITH_EGRESS,
+      },
       securityGroups: [webSocketServiceSecurityGroup],
-      enableExecuteCommand: true,
+      assignPublicIp: false,
     });
 
     const albSecurityGroup = new SecurityGroup(this, 'ALBSecurityGroup', {
@@ -143,27 +187,22 @@ export class ECSResources extends Construct {
       },
     );
 
-    const webSocketListener = props.applicationLoadBalancer.addListener(
+
+    // Create Listener
+    props.applicationLoadBalancer.addListener(
       'webSocketListener',
       {
         port: 80,
         protocol: ApplicationProtocol.HTTP,
         open: true,
-        defaultAction: ListenerAction.fixedResponse(403),
+        defaultAction: ListenerAction.forward([webSocketTargetGroup]),
       },
     );
 
-    webSocketListener.addAction('ForwardFromCloudFront', {
-      conditions: [
-        ListenerCondition.httpHeader(props.customHeader, [props.randomString]),
-      ],
-      action: ListenerAction.forward([webSocketTargetGroup]),
-      priority: 1,
-    });
-
+    
     const scalableTarget = websocketService.autoScaleTaskCount({
       minCapacity: 1,
-      maxCapacity: 5,
+      maxCapacity: 1,
     });
 
     scalableTarget.scaleOnCpuUtilization('CpuScaling', {

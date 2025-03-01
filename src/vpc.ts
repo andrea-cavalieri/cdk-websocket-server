@@ -10,8 +10,13 @@ export class VPCResources extends Construct {
     super(scope, id);
 
     this.vpc = new Vpc(this, 'VPC', {
-      natGateways: 0,
+      natGateways: 1,
       subnetConfiguration: [
+        {
+          cidrMask: 24,
+          name: 'ServerPrivate',
+          subnetType: SubnetType.PRIVATE_WITH_EGRESS,
+        },
         {
           cidrMask: 24,
           name: 'ServerPublic',
@@ -26,8 +31,9 @@ export class VPCResources extends Construct {
       this,
       'ApplicationLoadBalancer',
       {
+        vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
         vpc: this.vpc,
-        internetFacing: true,
+        internetFacing: false,
       },
     );
   }
