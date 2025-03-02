@@ -26,7 +26,6 @@ import {
   ApplicationProtocol,
   Protocol,
   ListenerAction,
-  ListenerCondition,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { ServicePrincipal, Role, ManagedPolicy } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
@@ -199,7 +198,7 @@ export class ECSResources extends Construct {
       },
     );
 
-    
+
     const scalableTarget = websocketService.autoScaleTaskCount({
       minCapacity: 1,
       maxCapacity: 1,
