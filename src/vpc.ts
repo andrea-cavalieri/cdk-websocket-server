@@ -1,10 +1,25 @@
+import { CfnOutput, Stack, StackProps } from 'aws-cdk-lib';
 import { SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
-import { ApplicationLoadBalancer } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { Construct } from 'constructs';
+
+
+export class VpcStack extends Stack {
+  public vpcResources: VPCResources;
+  constructor(scope: Construct, id: string, _props: StackProps) {
+    super(scope, id);
+    this.vpcResources = new VPCResources(this, 'VPCResources');
+
+    // Export the VPC ID
+    new CfnOutput(this, 'VpcIdOutput', {
+      value: this.vpcResources.vpc.vpcId,
+      exportName: 'VpcId',
+    });
+
+  }
+}
 
 export class VPCResources extends Construct {
   public vpc: Vpc;
-  public applicationLoadBalancer: ApplicationLoadBalancer;
 
   constructor(scope: Construct, id: string) {
     super(scope, id);
@@ -26,15 +41,5 @@ export class VPCResources extends Construct {
       ],
       maxAzs: 2,
     });
-
-    this.applicationLoadBalancer = new ApplicationLoadBalancer(
-      this,
-      'ApplicationLoadBalancer',
-      {
-        vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
-        vpc: this.vpc,
-        internetFacing: false,
-      },
-    );
   }
 }

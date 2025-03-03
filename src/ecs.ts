@@ -1,7 +1,6 @@
-import { Duration } from 'aws-cdk-lib';
+import { CfnOutput, Duration, Stack, StackProps } from 'aws-cdk-lib';
 import { AutoScalingGroup } from 'aws-cdk-lib/aws-autoscaling';
 import {
-  Vpc,
   SecurityGroup,
   Port,
   Connections,
@@ -9,6 +8,7 @@ import {
   SubnetType,
   LaunchTemplate,
   UserData,
+  IVpc,
 } from 'aws-cdk-lib/aws-ec2';
 import {
   Cluster,
@@ -31,14 +31,42 @@ import { ServicePrincipal, Role, ManagedPolicy } from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 interface ECSResourcesProps {
-  vpc: Vpc;
-  applicationLoadBalancer: ApplicationLoadBalancer;
-  randomString: string;
-  customHeader: string;
+  vpc: IVpc;
 }
+export class ECSStack extends Stack {
+  public ecsResources: ECSResources;
+  constructor(scope: Construct, id: string, _props: StackProps, vpc: IVpc) {
+    super(scope, id);
+
+   
+    // Create ECS resources
+    const ecsResources = new ECSResources(this, 'ECSResources', {
+      vpc: vpc,   
+    });
+
+    this.ecsResources = ecsResources;
+
+
+    new CfnOutput(this, 'ClusterArn', {
+      value: 'CLUSTER=' + ecsResources.cluster.clusterArn,
+    });
+    new CfnOutput(this, 'getTask', {
+      value:
+        'TASK=$( aws ecs list-tasks --cluster $CLUSTER --query taskArns --output text )',
+    });
+
+    new CfnOutput(this, 'ecsExecute', {
+      value:
+        'aws ecs execute-command --cluster $CLUSTER --task $TASK --command "bash" --interactive',
+    });
+  }
+}
+
 
 export class ECSResources extends Construct {
   public cluster: Cluster;
+  public applicationLoadBalancer: ApplicationLoadBalancer;
+
 
   constructor(scope: Construct, id: string, props: ECSResourcesProps) {
     super(scope, id);
@@ -186,9 +214,21 @@ export class ECSResources extends Construct {
       },
     );
 
+    
+    this.applicationLoadBalancer = new ApplicationLoadBalancer(
+      this,
+      'ApplicationLoadBalancer',
+      {
+        vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
+        vpc: props.vpc,
+        internetFacing: false,
+        securityGroup: albSecurityGroup,
+      },
+    );
+
 
     // Create Listener
-    props.applicationLoadBalancer.addListener(
+    this.applicationLoadBalancer.addListener(
       'webSocketListener',
       {
         port: 80,

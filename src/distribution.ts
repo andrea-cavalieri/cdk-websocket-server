@@ -1,3 +1,4 @@
+import { Stack, StackProps } from 'aws-cdk-lib';
 import {
   AllowedMethods,
   CachePolicy,
@@ -12,9 +13,22 @@ import { Construct } from 'constructs';
 
 interface DistributionResourcesProps {
   applicationLoadBalancer: ApplicationLoadBalancer;
-  randomString: string;
-  customHeader: string;
 }
+
+
+export class DistributionStack extends Stack {
+  constructor(scope: Construct, id: string, _props: StackProps, props: DistributionResourcesProps) { 
+    super(scope, id);
+    new DistributionResources(
+      this,
+      'DistributionResources',
+      props,
+    );
+  }
+}
+
+
+
 export class DistributionResources extends Construct {
   public distribution: Distribution;
 
@@ -96,22 +110,22 @@ export class DistributionResources extends Construct {
     //     },
     //   );
 
-  //   new CustomResource(this, 'customHeaderCustomResource', {
-  //     serviceToken: customHeaderCustomResourceProvider.serviceToken,
-  //     properties: {
-  //       DistributionId: this.distribution.distributionId,
-  //       Origins: [
-  //         {
-  //           OriginId: 'defaultOrigin',
-  //           CustomHeaders: [
-  //             {
-  //               HeaderName: props.customHeader,
-  //               HeaderValue: props.randomString,
-  //             },
-  //           ],
-  //         },
-  //       ],
-  //     },
-  //   });
+    //   new CustomResource(this, 'customHeaderCustomResource', {
+    //     serviceToken: customHeaderCustomResourceProvider.serviceToken,
+    //     properties: {
+    //       DistributionId: this.distribution.distributionId,
+    //       Origins: [
+    //         {
+    //           OriginId: 'defaultOrigin',
+    //           CustomHeaders: [
+    //             {
+    //               HeaderName: props.customHeader,
+    //               HeaderValue: props.randomString,
+    //             },
+    //           ],
+    //         },
+    //       ],
+    //     },
+    //   });
   }
 }
